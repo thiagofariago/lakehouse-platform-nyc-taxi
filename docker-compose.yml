@@ -25,11 +25,6 @@ x-airflow-common: &airflow-common
     AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
     AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
     MINIO_ENDPOINT: http://${MINIO_ENDPOINT}
-    # NYC Taxi config
-    NYC_TAXI_SAMPLE_FRACTION: ${NYC_TAXI_SAMPLE_FRACTION}
-    NYC_TAXI_YEAR: ${NYC_TAXI_YEAR}
-    NYC_TAXI_MONTH: ${NYC_TAXI_MONTH}
-    NYC_TAXI_COLOR: ${NYC_TAXI_COLOR}
     # dbt
     DBT_PROFILES_DIR: ${DBT_PROFILES_DIR}
     DBT_PROJECT_DIR: ${DBT_PROJECT_DIR}
@@ -194,6 +189,7 @@ services:
   airflow-init:
     <<: *airflow-common
     container_name: airflow-init
+    user: "0:0"
     entrypoint: /bin/bash
     command:
       - -c
