@@ -1,20 +1,111 @@
-# Marts Schema - CUSTOMIZE AQUI
-#
-# TODO:
-# 1. Documente seus modelos marts
-# 2. Adicione testes de qualidade
-# 3. Defina relacionamentos entre tabelas
-#
-# Exemplo completo em: examples/dbt_models/
-
 version: 2
 
 models:
-  - name: fct_example
-    description: "Tabela de fatos - exemplo"
+  # ==========================================================================
+  # FCT_TRIPS - Tabela de fatos principal
+  # ==========================================================================
+  - name: fct_trips
+    description: |
+      Tabela de fatos principal com todas as viagens de alta qualidade.
+      Base para dashboards e análises detalhadas.
+      
+      Grão: Uma linha por viagem (trip_id)
+      Fonte: int_trips_cleaned
     columns:
-      - name: date_key
-        description: "Data no formato YYYYMMDD"
+      - name: trip_id
+        description: "Chave primária - identificador único da viagem"
         tests:
           - not_null
-      # TODO: Adicione suas colunas
+      
+      - name: taxi_type
+        description: "Tipo de taxi (yellow, green, fhv, fhvhv)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["yellow", "green", "fhv", "fhvhv"]
+      
+      - name: pickup_datetime
+        description: "Data/hora de início da viagem"
+        tests:
+          - not_null
+      
+      
+      - name: is_high_quality_trip
+        description: "Flag indicando se viagem passou em todos os critérios de qualidade"
+        tests:
+          - not_null
+
+  # ==========================================================================
+  # FCT_TRIPS_DAILY - Agregações diárias
+  # ==========================================================================
+  - name: fct_trips_daily
+    description: |
+      Métricas agregadas por dia e tipo de taxi.
+      Otimizado para dashboards de tendências e KPIs diários.
+      
+      Grão: Uma linha por (trip_date, taxi_type)
+      Fonte: fct_trips
+    columns:
+      - name: trip_date
+        description: "Data da viagem"
+        tests:
+          - not_null
+      
+      - name: taxi_type
+        description: "Tipo de taxi"
+        tests:
+          - not_null
+      
+      - name: total_trips
+        description: "Total de viagens no dia"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      
+      - name: total_distance_miles
+        description: "Soma total de distância percorrida"
+      
+      - name: total_revenue
+        description: "Receita total (apenas yellow/green)"
+
+  # ==========================================================================
+  # FCT_TRIPS_MONTHLY - Agregações mensais
+  # ==========================================================================
+  - name: fct_trips_monthly
+    description: |
+      Métricas agregadas por mês e tipo de taxi.
+      Otimizado para análises de tendências mensais e comparações YoY.
+      
+      Grão: Uma linha por (year, month, taxi_type)
+      Fonte: fct_trips
+    columns:
+      - name: year
+        description: "Ano"
+        tests:
+          - not_null
+      
+      - name: month
+        description: "Mês (1-12)"
+        tests:
+          - not_null
+      
+      - name: taxi_type
+        description: "Tipo de taxi"
+        tests:
+          - not_null
+      
+      - name: total_trips
+        description: "Total de viagens no mês"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      
+      - name: total_revenue
+        description: "Receita total do mês (apenas yellow/green)"
+      
+      - name: days_with_trips
+        description: "Número de dias com viagens registradas"

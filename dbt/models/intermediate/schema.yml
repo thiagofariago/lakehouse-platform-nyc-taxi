@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: int_trips_unified
+    description: "Unified view of all taxi types with standardized schema"
+    columns:
+      - name: trip_id
+        tests:
+          - not_null
+      - name: taxi_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["yellow", "green", "fhv", "fhvhv"]
+      - name: pickup_datetime
+        tests:
+          - not_null
+
+  - name: int_trips_enriched
+    description: "Enriched trips with calculated metrics"
+    columns:
+      - name: trip_id
+        tests:
+          - not_null
+      - name: is_high_quality_trip
+        tests:
+          - not_null
+      - name: time_of_day
+        tests:
+          - accepted_values:
+              values: ["Morning", "Afternoon", "Evening", "Night"]
+      - name: pickup_hour
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 23
+              inclusive: true
+
+  - name: int_trips_cleaned
+    description: "High quality trips only"
+    columns:
+      - name: trip_id
+        tests:
+          - not_null

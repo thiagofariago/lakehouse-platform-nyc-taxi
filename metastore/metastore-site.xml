@@ -32,7 +32,7 @@
     
     <property>
         <name>metastore.warehouse.dir</name>
-        <value>s3a://warehouse/hive/</value>
+        <value>s3a://lakehouse/</value>
     </property>
     
     <property>

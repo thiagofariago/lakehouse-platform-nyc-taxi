@@ -1,25 +1,69 @@
-# Sources Configuration - CUSTOMIZE AQUI
+# Sources Configuration - NYC Taxi Pipeline
 #
-# TODO:
-# 1. Configure suas sources (tabelas raw)
-# 2. Adicione testes de qualidade
-# 3. Documente colunas importantes
-#
-# Exemplo completo em: examples/dbt_models/sources.yml
+# Raw layer usando Iceberg (ACID, time travel, schema evolution)
+# 4 tabelas separadas por tipo de taxi
 
 version: 2
 
 sources:
   - name: raw
-    database: hive
+    database: iceberg
     schema: raw
+    description: "Raw data layer with Iceberg format (ACID, time travel, schema evolution)"
+    meta:
+      owner: "data-team"
+      source_url: "https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page"
+
     tables:
-      - name: my_table  # TODO: Nome da sua tabela raw
-        description: "Descrição dos dados brutos"
-        columns:
-          - name: id
-            description: "Identificador único"
-            tests:
-              - not_null
-              - unique
-          # TODO: Adicione suas colunas aqui
+      # Yellow Taxi - Traditional street-hail taxis
+      - name: yellow_trips
+        description: "NYC TLC Yellow Taxi trip records (traditional yellow cabs)"
+        meta:
+          contains_pii: false
+          refresh_cadence: "daily"
+
+        # Freshness check: dados devem chegar diariamente
+        freshness:
+          warn_after: {count: 2, period: day}
+          error_after: {count: 5, period: day}
+
+        loaded_at_field: loaded_at  # Usado para freshness check
+
+      # Green Taxi - Boro taxis (outside Manhattan)
+      - name: green_trips
+        description: "NYC TLC Green Taxi trip records (boro taxis, outside Manhattan)"
+        meta:
+          contains_pii: false
+          refresh_cadence: "daily"
+
+        freshness:
+          warn_after: {count: 2, period: day}
+          error_after: {count: 5, period: day}
+
+        loaded_at_field: loaded_at
+
+      # FHV - For-Hire Vehicles (base dispatched, non-high-volume)
+      - name: fhv_trips
+        description: "NYC TLC For-Hire Vehicle trip records (base dispatched vehicles)"
+        meta:
+          contains_pii: false
+          refresh_cadence: "daily"
+
+        freshness:
+          warn_after: {count: 2, period: day}
+          error_after: {count: 5, period: day}
+
+        loaded_at_field: loaded_at
+
+      # FHVHV - For-Hire Vehicles High Volume (Uber, Lyft, etc)
+      - name: fhvhv_trips
+        description: "NYC TLC High Volume For-Hire Vehicle trip records (Uber, Lyft, Via)"
+        meta:
+          contains_pii: false
+          refresh_cadence: "daily"
+
+        freshness:
+          warn_after: {count: 2, period: day}
+          error_after: {count: 5, period: day}
+
+        loaded_at_field: loaded_at

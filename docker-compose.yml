@@ -38,6 +38,7 @@ x-airflow-common: &airflow-common
     - ./airflow/plugins:/opt/airflow/plugins
     - ./dbt:/opt/airflow/dbt
     - ./scripts:/opt/airflow/scripts
+    - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID}:0"
   depends_on:
     postgres-airflow:
@@ -91,11 +92,9 @@ services:
     entrypoint: >
       /bin/sh -c "
       /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
-      /usr/bin/mc mb --ignore-existing myminio/${MINIO_BUCKET_RAW};
-      /usr/bin/mc mb --ignore-existing myminio/${MINIO_BUCKET_WAREHOUSE};
-      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_RAW};
-      /usr/bin/mc anonymous set download myminio/${MINIO_BUCKET_WAREHOUSE};
-      echo 'MinIO buckets initialized successfully';
+      /usr/bin/mc mb --ignore-existing myminio/lakehouse;
+      /usr/bin/mc anonymous set download myminio/lakehouse;
+      echo 'MinIO lakehouse bucket initialized successfully';
       "
     networks:
       - lakehouse-net
@@ -280,5 +279,96 @@ services:
       - ./trino/catalog:/etc/trino/catalog
     depends_on:
       - trino-coordinator
+    networks:
+      - lakehouse-net
+
+  # ============================================================================
+  # Spark Cluster - Data Processing Engine for Ingestion
+  # ============================================================================
+  spark-master:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark-master
+    hostname: spark-master
+    ports:
+      - "8083:8080"  # Spark Master UI
+      - "7077:7077"  # Spark Master Port
+    environment:
+      SPARK_MODE: master
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      SPARK_MASTER_HOST: 0.0.0.0
+      SPARK_MASTER_PORT: 7077
+    volumes:
+      - ./scripts:/opt/scripts
+      - ./spark/conf:/opt/spark/conf
+    command: >
+      bash -c "
+      mkdir -p /opt/spark/logs &&
+      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master --host 0.0.0.0 --port 7077 --webui-port 8080 > /opt/spark/logs/spark-master.log 2>&1 &
+      sleep infinity
+      "
+    depends_on:
+      - hive-metastore
+      - minio
+    networks:
+      - lakehouse-net
+
+  spark-worker-1:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark-worker-1
+    hostname: spark-worker-1
+    ports:
+      - "8084:8081"  # Worker 1 UI
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 2g
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./scripts:/opt/scripts
+      - ./spark/conf:/opt/spark/conf
+    command: >
+      bash -c "
+      mkdir -p /opt/spark/logs &&
+      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077 --cores 2 --memory 2g --webui-port 8081 > /opt/spark/logs/spark-worker-1.log 2>&1 &
+      sleep infinity
+      "
+    depends_on:
+      - spark-master
+    networks:
+      - lakehouse-net
+
+  spark-worker-2:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark-worker-2
+    hostname: spark-worker-2
+    ports:
+      - "8085:8081"  # Worker 2 UI
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 2g
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./scripts:/opt/scripts
+      - ./spark/conf:/opt/spark/conf
+    command: >
+      bash -c "
+      mkdir -p /opt/spark/logs &&
+      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077 --cores 2 --memory 2g --webui-port 8081 > /opt/spark/logs/spark-worker-2.log 2>&1 &
+      sleep infinity
+      "
+    depends_on:
+      - spark-master
     networks:
       - lakehouse-net

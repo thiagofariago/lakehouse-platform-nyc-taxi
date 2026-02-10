@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  # ============================================================================
+  # YELLOW TAXI TRIPS
+  # ============================================================================
+  - name: stg_nyc_taxi__yellow_trips
+    description: "Staging model for NYC Yellow Taxi trips with standardized column names and basic quality filters"
+
+    columns:
+      - name: trip_id
+        description: "Surrogate key for unique trip identification"
+        tests:
+          - not_null
+
+      - name: vendor_id
+        description: "Taxi technology provider (1=Creative Mobile, 2=VeriFone)"
+        tests:
+          - not_null
+
+      - name: pickup_datetime
+        description: "Trip start timestamp"
+        tests:
+          - not_null
+
+      - name: dropoff_datetime
+        description: "Trip end timestamp"
+        tests:
+          - not_null
+
+      - name: pickup_location_id
+        description: "TLC Taxi Zone where trip started"
+        tests:
+          - not_null
+
+      - name: dropoff_location_id
+        description: "TLC Taxi Zone where trip ended"
+        tests:
+          - not_null
+
+      - name: trip_distance_miles
+        description: "Trip distance in miles"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+
+      - name: total_amount
+        description: "Total amount charged to passenger"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+
+      - name: year
+        description: "Partition: year"
+        tests:
+          - not_null
+
+      - name: month
+        description: "Partition: month"
+        tests:
+          - not_null

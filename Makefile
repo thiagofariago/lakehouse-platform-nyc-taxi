@@ -1,4 +1,4 @@
-.PHONY: help setup up down restart logs clean clean-all validate demo
+.PHONY: help setup up down restart logs clean clean-all validate
 
 # Default target
 .DEFAULT_GOAL := help
@@ -26,7 +26,7 @@ setup: ## Initial setup - copy .env file
 validate: ## Validate environment and prerequisites
 	@echo "🔍 Validating environment..."
 	@command -v docker >/dev/null 2>&1 || { echo "❌ Docker is not installed"; exit 1; }
-	@command -v docker >/dev/null 2>&1 || { echo "❌ Docker Compose is not installed"; exit 1; }
+	@docker compose version >/dev/null 2>&1 || { echo "❌ Docker Compose is not installed"; exit 1; }
 	@[ -f .env ] || { echo "❌ .env file not found. Run 'make setup' first"; exit 1; }
 	@echo "✅ Environment validated"
 
@@ -45,7 +45,6 @@ up: validate ## Start all services
 	@echo ""
 	@echo "⏳ Wait 30-60 seconds for all services to initialize"
 	@echo "📝 Check logs: make logs"
-	@echo "🔧 Scale workers: make scale-workers WORKERS=3"
 
 up-build: validate ## Start all services with rebuild
 	@echo "🔨 Building and starting services..."
@@ -61,10 +60,15 @@ restart: ## Restart all services
 	docker compose restart
 	@echo "✅ Services restarted"
 
-scale-workers: ## Scale Trino workers (usage: make scale-workers WORKERS=3)
+scale-trino-workers: ## Scale Trino workers (usage: make scale-trino-workers WORKERS=3)
 	@echo "⚙️  Scaling Trino workers to $(WORKERS)..."
 	docker compose up -d --scale trino-worker=$(WORKERS)
 	@echo "✅ Trino workers scaled to $(WORKERS)"
+
+scale-spark-workers: ## Scale Spark workers (usage: make scale-spark-workers WORKERS=3)
+	@echo "⚙️  Scaling Spark workers to $(WORKERS)..."
+	docker compose up -d --scale spark-worker=$(WORKERS)
+	@echo "✅ Spark workers scaled to $(WORKERS)"
 
 ##@ Logs
 
@@ -76,6 +80,9 @@ logs-airflow: ## Show Airflow logs
 
 logs-trino: ## Show Trino logs
 	docker compose logs -f trino-coordinator trino-worker
+
+logs-spark: ## Show Spark logs
+	docker compose logs -f spark-master spark-worker
 
 logs-metastore: ## Show Hive Metastore logs
 	docker compose logs -f hive-metastore
@@ -99,62 +106,35 @@ airflow-shell: ## Open Airflow scheduler shell
 ##@ dbt
 
 dbt-debug: ## Run dbt debug
-	docker compose exec airflow-scheduler dbt debug --project-dir $(DBT_PROJECT_DIR) --profiles-dir $(DBT_PROFILES_DIR)
+	docker compose exec airflow-scheduler dbt debug --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt
 
 dbt-run: ## Run dbt models
-	docker compose exec airflow-scheduler dbt run --project-dir $(DBT_PROJECT_DIR) --profiles-dir $(DBT_PROFILES_DIR)
+	docker compose exec airflow-scheduler dbt run --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt
 
 dbt-test: ## Run dbt tests
-	docker compose exec airflow-scheduler dbt test --project-dir $(DBT_PROJECT_DIR) --profiles-dir $(DBT_PROFILES_DIR)
+	docker compose exec airflow-scheduler dbt test --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt
 
 dbt-docs: ## Generate and serve dbt documentation
-	docker compose exec airflow-scheduler dbt docs generate --project-dir $(DBT_PROJECT_DIR) --profiles-dir $(DBT_PROFILES_DIR)
+	docker compose exec airflow-scheduler dbt docs generate --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt
+
+##@ Spark
+
+spark-shell: ## Open Spark master shell
+	docker compose exec spark-master /bin/bash
+
+spark-submit-test: ## Test Spark submit with a simple job
+	@echo "🧪 Testing Spark submit..."
+	docker compose exec spark-master spark-submit --version
 
 ##@ Trino
 
 trino-cli: ## Open Trino CLI
-	docker compose exec trino-coordinator trino --catalog iceberg --schema marts
+	docker compose exec trino-coordinator trino --catalog iceberg --schema staging
 
 trino-ui: ## Open Trino UI in browser
 	@echo "Opening Trino UI..."
 	@python3 -m webbrowser "http://localhost:$(TRINO_COORDINATOR_PORT)" 2>/dev/null || \
 		echo "📊 Open manually: http://localhost:$(TRINO_COORDINATOR_PORT)"
-
-##@ Demo
-
-demo: ## Run demo queries (requires pipeline to be completed)
-	@echo "🎯 Running demo queries..."
-	@echo "📊 Check Trino UI to see distributed execution: http://localhost:$(TRINO_COORDINATOR_PORT)"
-	docker compose exec -T trino-coordinator trino --catalog iceberg --schema marts -f /opt/airflow/scripts/demo_queries.sql
-
-demo-1-worker: ## Demo with 1 worker
-	@echo "🔧 Running demo with 1 worker..."
-	@$(MAKE) scale-workers WORKERS=1
-	@sleep 10
-	@echo "⏱️  Running queries..."
-	@time $(MAKE) demo
-
-demo-3-workers: ## Demo with 3 workers
-	@echo "🔧 Running demo with 3 workers..."
-	@$(MAKE) scale-workers WORKERS=3
-	@sleep 10
-	@echo "⏱️  Running queries..."
-	@time $(MAKE) demo
-
-demo-compare: ## Compare performance: 1 worker vs 3 workers
-	@echo "📊 Performance Comparison: 1 Worker vs 3 Workers"
-	@echo "================================================"
-	@echo ""
-	@echo "▶️  Test 1: Single Worker"
-	@$(MAKE) demo-1-worker
-	@echo ""
-	@echo "⏸️  Waiting 15 seconds before scaling..."
-	@sleep 15
-	@echo ""
-	@echo "▶️  Test 2: Three Workers"
-	@$(MAKE) demo-3-workers
-	@echo ""
-	@echo "✅ Comparison complete! Check execution times above."
 
 ##@ Monitoring
 
@@ -212,19 +192,19 @@ debug-metastore: ## Debug Hive Metastore connection
 
 debug-minio: ## Check MinIO buckets
 	@echo "🔍 Checking MinIO buckets..."
-	docker compose exec minio-mc mc ls myminio
+	docker compose exec minio mc ls local/
 
 debug-trino-catalogs: ## Show Trino catalogs
 	@echo "🔍 Showing Trino catalogs..."
 	docker compose exec trino-coordinator trino --execute "SHOW CATALOGS;"
 
-debug-trino-schemas: ## Show Trino schemas in all catalogs
+debug-trino-schemas: ## Show Trino schemas in Iceberg catalog
 	@echo "🔍 Showing Trino schemas..."
-	@echo "--- Hive Catalog ---"
-	docker compose exec trino-coordinator trino --catalog hive --execute "SHOW SCHEMAS;"
-	@echo ""
-	@echo "--- Iceberg Catalog ---"
 	docker compose exec trino-coordinator trino --catalog iceberg --execute "SHOW SCHEMAS;"
+
+debug-spark: ## Check Spark master status
+	@echo "🔍 Checking Spark status..."
+	docker compose exec spark-master spark-submit --version
 
 troubleshoot: ## Run all troubleshooting checks
 	@echo "🔧 Running comprehensive troubleshooting..."
@@ -236,3 +216,5 @@ troubleshoot: ## Run all troubleshooting checks
 	@$(MAKE) debug-metastore
 	@echo ""
 	@$(MAKE) debug-trino-catalogs
+	@echo ""
+	@$(MAKE) debug-spark

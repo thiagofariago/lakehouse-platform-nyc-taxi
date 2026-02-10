@@ -11,7 +11,7 @@ macro-paths: ["macros"]
 models:
   lakehouse_analytics:
     staging:
-      +materialized: view
+      +materialized: incremental
       +schema: staging
       +location_root: 's3a://lakehouse/staging'
     intermediate:
