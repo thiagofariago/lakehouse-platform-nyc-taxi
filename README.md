@@ -114,6 +114,8 @@ NYC_TAXI_OVERWRITE=false                    # true = re-ingest existing partitio
 
 Changes take effect immediately on the next pipeline run — no restart needed.
 
+> **Note:** This setup ingests a fixed period for demonstration purposes. In a production scenario, these values would be dynamically resolved (e.g. via Airflow variables or an incremental schedule) to support continuous, automated ingestion.
+
 ### Run the Pipeline
 
 Open [http://localhost:8081](http://localhost:8081) (admin / admin), find `nyc_taxi_pipeline`, and trigger it.
