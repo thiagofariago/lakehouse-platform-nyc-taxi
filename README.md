@@ -6,7 +6,7 @@ A production-grade data lakehouse built on open-source tooling. Ingests NYC Taxi
 
 ## Requirements
 
-- [Docker Engine 20.10+](https://docs.docker.com/engine/install/) with [Docker Compose v2](https://docs.docker.com/compose/install/)
+- [Docker 20.10+](https://docs.docker.com/engine/install/) (includes Docker Compose)
 - 8 GB RAM minimum (16 GB recommended)
 - Available ports: `8080-8085`, `9000-9001`, `5432-5433`, `9083`, `7077`
 
