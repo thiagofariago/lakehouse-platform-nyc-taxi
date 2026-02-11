@@ -149,6 +149,10 @@ Three-layer modeling approach:
 
 Manages the end-to-end pipeline execution. The DAG runs on-demand (no schedule), with retry logic (2 retries, 5-minute delay). The Airflow container includes Docker CLI to submit Spark jobs to the Spark cluster.
 
+### A Note on Scaling
+
+Spark and Trino workers are set to a fixed count in this setup for simplicity. In a production environment, the number of workers should be dynamically adjusted based on workload — using autoscaling policies (e.g. Kubernetes HPA, AWS EMR auto-scaling, or Trino's resource groups) to allocate resources on demand and avoid over-provisioning.
+
 ---
 
 ## Querying Data
