@@ -1,17 +1,13 @@
 #!/bin/bash
-# Wrapper para ingestão bulk de múltiplos tipos de taxi
-# Configurações centralizadas aqui (não mais via parâmetros)
+# Edit the variables below to change what data to ingest
 
 set -e
 
-# ============================================
-# CONFIGURAÇÃO - Edite aqui para mudar período
-# ============================================
+# CONFIGURATION
 export NYC_TAXI_YEAR=2023
 export NYC_TAXI_MONTH=02
 export NYC_TAXI_COLORS=yellow,green,fhv,fhvhv
 export NYC_TAXI_OVERWRITE=false
-# ============================================
 
 echo "=================================="
 echo "Spark Bulk Ingestion Wrapper"
@@ -38,4 +34,4 @@ echo ""
   /opt/scripts/nyc_taxi/ingest_spark_bulk.py
 
 echo ""
-echo "✓ Bulk ingestion completed"
+echo "Bulk ingestion completed"

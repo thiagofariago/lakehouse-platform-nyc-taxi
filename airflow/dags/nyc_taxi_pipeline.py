@@ -1,11 +1,7 @@
 """
 NYC Taxi Data Pipeline - Airflow DAG
 
-Pipeline completo de ingestão e transformação de dados do NYC Taxi usando:
-- Spark + Iceberg (ingestão com ACID)
-- dbt (transformações)
-- Trino (query engine)
-
+Spark ingestion + dbt transformations over Iceberg tables.
 Schedule: Manual (on-demand)
 """
 
@@ -13,10 +9,6 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
-
-# ============================================================================
-# Configurações da DAG
-# ============================================================================
 
 default_args = {
     'owner': 'data-team',
@@ -31,7 +23,7 @@ dag = DAG(
     dag_id='nyc_taxi_pipeline',
     default_args=default_args,
     description='NYC Taxi pipeline: Spark ingestion + dbt transformations',
-    schedule_interval=None,  # Manual execution
+    schedule_interval=None,
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=['nyc_taxi', 'spark', 'iceberg', 'dbt', 'production'],
@@ -39,12 +31,7 @@ dag = DAG(
 )
 
 
-# ============================================================================
-# Task Functions
-# ============================================================================
-
 def log_pipeline_completion(**context):
-    """Log final da pipeline"""
     print("\n" + "=" * 80)
     print("NYC TAXI PIPELINE COMPLETED SUCCESSFULLY")
     print("=" * 80)
@@ -57,42 +44,42 @@ def log_pipeline_completion(**context):
     print("\nQuery with Trino or dbt!")
 
 
-# ============================================================================
-# Tasks Definition
-# ============================================================================
-
 with dag:
 
-    # Task 1: Ingestão Spark (yellow taxi 2023-02)
     ingest = BashOperator(
         task_id='ingest_spark',
-        bash_command='docker exec spark-master bash /opt/scripts/nyc_taxi/run_spark_ingest_bulk.sh',
+        bash_command='docker exec spark-master bash /opt/scripts/nyc_taxi/run_spark_ingest_bulk.sh ',
     )
 
-    # Task 2: dbt - Staging models
     dbt_staging = BashOperator(
         task_id='dbt_staging',
-        bash_command='cd /opt/airflow/dbt && dbt run --select staging --profiles-dir . --target dev',
+        bash_command='cd /opt/airflow/dbt && dbt deps --profiles-dir . && dbt run --select staging --profiles-dir . --target dev ',
     )
 
-    # Task 3: dbt - Intermediate models
     dbt_intermediate = BashOperator(
         task_id='dbt_intermediate',
-        bash_command='cd /opt/airflow/dbt && dbt run --select intermediate --profiles-dir . --target dev',
+        bash_command='cd /opt/airflow/dbt && dbt run --select intermediate --profiles-dir . --target dev ',
     )
 
-    # Task 4: dbt - Tests
+    dbt_marts = BashOperator(
+        task_id='dbt_marts',
+        bash_command='cd /opt/airflow/dbt && dbt run --select marts --profiles-dir . --target dev ',
+    )
+
     dbt_test = BashOperator(
         task_id='dbt_test',
-        bash_command='cd /opt/airflow/dbt && dbt test --profiles-dir . --target dev',
+        bash_command='cd /opt/airflow/dbt && dbt test --profiles-dir . --target dev ',
     )
 
-    # Task 5: Log completion
+    dbt_docs = BashOperator(
+        task_id='dbt_docs',
+        bash_command='docker exec airflow-webserver bash -c "cd /opt/airflow/dbt && dbt deps --profiles-dir . && dbt docs generate --profiles-dir . --target dev && pkill -f \'python3 -m http.server 8082\' || true && cd /tmp/dbt-target && nohup python3 -m http.server 8082 --bind 0.0.0.0 > /tmp/dbt-docs-serve.log 2>&1 & sleep 2 && echo \'dbt docs available at http://localhost:8082\'" ',
+    )
+
     log_completion = PythonOperator(
         task_id='log_completion',
         python_callable=log_pipeline_completion,
         provide_context=True,
     )
 
-    # Pipeline: Spark → dbt staging → dbt intermediate → dbt test → log
-    ingest >> dbt_staging >> dbt_intermediate >> dbt_test >> log_completion
+    ingest >> dbt_staging >> dbt_intermediate >> dbt_marts >> dbt_test >> dbt_docs >> log_completion

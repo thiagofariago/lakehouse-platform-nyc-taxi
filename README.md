@@ -1,169 +1,212 @@
-# Distributed Lakehouse
+# NYC Taxi Lakehouse Platform
 
-Modern data lakehouse template with **Trino** + **Iceberg** + **MinIO** + **dbt** + **Airflow**.
-
-Clone, customize, and run your own data pipeline in minutes.
-
----
-
-## Stack
-
-- **Query Engine:** Trino (distributed SQL)
-- **Table Format:** Apache Iceberg (ACID, time travel)
-- **Storage:** MinIO (S3-compatible)
-- **Transformation:** dbt (analytics engineering)
-- **Orchestration:** Apache Airflow
-- **Metastore:** Hive Metastore (PostgreSQL)
-
----
-
-## Quick Start
-
-```bash
-# Clone
-git clone <repo> my-lakehouse
-cd my-lakehouse
-
-# Configure
-cp .env.example .env
-
-# Start
-docker compose up -d
-
-# Access
-# Airflow:  http://localhost:8081
-# Trino UI:  http://localhost:8080
-# MinIO:     http://localhost:9001 (minioadmin/minioadmin)
-```
-
----
-
-## Customize Your Pipeline
-
-### 1. Create ingestion script
-
-Edit `scripts/ingest_your_data.py`:
-
-```python
-def extract_data():
-    # TODO: Connect to your data source
-    # - API: requests.get(...)
-    # - Database: pd.read_sql(...)
-    # - Files: pd.read_csv(...)
-    return df
-```
-
-### 2. Define table schema
-
-Edit `scripts/bootstrap_tables.py`:
-
-```sql
-CREATE TABLE hive.raw.my_table (
-    id BIGINT,
-    name VARCHAR,
-    created_at TIMESTAMP(3)
-    -- Your columns here
-)
-```
-
-### 3. Create dbt models
-
-`dbt/models/staging/stg_my_data.sql`:
-```sql
-SELECT * FROM {{ source('raw', 'my_table') }}
-WHERE id IS NOT NULL
-```
-
-`dbt/models/marts/fct_my_metrics.sql`:
-```sql
-SELECT
-    date,
-    COUNT(*) as total
-FROM {{ ref('stg_my_data') }}
-GROUP BY date
-```
-
-### 4. Configure Airflow DAG
-
-Edit `airflow/dags/my_pipeline.py` with your tasks.
-
----
-
-## Usage
-
-### Query data (Trino CLI)
-
-```bash
-docker exec -it trino-coordinator trino --catalog iceberg --schema marts
-
-trino> SELECT * FROM fct_my_metrics LIMIT 10;
-```
-
-### Query data (SQL Client)
-
-Connect **DBeaver/DataGrip**:
-- Host: `localhost`
-- Port: `8080`
-- Catalog: `iceberg`
-- Schema: `marts`
-- User: `admin`
-- Driver: Trino JDBC (`drivers/trino-jdbc-438.jar`)
-
-### Run pipeline
-
-```bash
-docker exec airflow-webserver airflow dags trigger my_pipeline
-```
-
----
-
-## Architecture
-
-```
-Raw Layer (Hive)         Staging (dbt)          Marts (Iceberg)
-────────────────         ─────────────          ───────────────
-hive.raw.my_table   →    stg_my_data     →      fct_my_metrics
-Parquet (immutable)      Views                  Tables (ACID)
-```
-
-**Why 2 catalogs?**
-- `hive` catalog: Raw data (simple Parquet)
-- `iceberg` catalog: Marts (ACID transactions, time travel)
-
-Both use the same Hive Metastore, but Iceberg adds advanced features.
-
----
-
-## Common Commands
-
-```bash
-# Container management
-docker compose ps
-docker compose down
-docker compose logs -f trino-coordinator
-
-# Trino CLI
-docker exec -it trino-coordinator trino
-
-# dbt
-docker exec airflow-webserver bash -c "cd /opt/airflow/dbt && dbt run --profiles-dir ."
-docker exec airflow-webserver bash -c "cd /opt/airflow/dbt && dbt test --profiles-dir ."
-
-# Airflow
-docker exec airflow-webserver airflow dags list
-docker exec airflow-webserver airflow dags trigger <dag_id>
-```
+A production-grade data lakehouse built on open-source tooling. Ingests NYC Taxi trip data through a fully containerized pipeline — from raw parquet files to analytics-ready fact tables — using Spark, Iceberg, Trino, dbt, and Airflow.
 
 ---
 
 ## Requirements
 
-- Docker + Docker Compose
-- 8GB RAM minimum
-- Ports: 8080, 8081, 9000, 9001, 5432, 5433, 9083
+- [Docker 20.10+](https://docs.docker.com/engine/install/) (includes Docker Compose)
+- 8 GB RAM minimum (16 GB recommended)
+- Available ports: `8080-8085`, `9000-9001`, `5432-5433`, `9083`, `7077`
 
 ---
 
-## License
+## Architecture
 
-MIT
+![Architecture](docs/architecture.png)
+
+### Data Flow
+
+![dbt Lineage Graph](docs/dbt-lineage.png)
+
+**Raw** — Spark ingests parquet files from the NYC TLC API into Iceberg tables, partitioned by year/month.
+
+**Staging** — One model per taxi type. Standardizes columns, casts types, generates surrogate keys, filters invalid records. Incremental.
+
+**Intermediate** — Unifies all taxi types into a single schema, calculates derived metrics (speed, duration, cost per mile), adds temporal features and quality flags.
+
+**Marts** — Analytics-ready fact tables: `fct_trips` (trip-level), `fct_trips_daily` (daily aggregates), `fct_trips_monthly` (monthly trends). High-quality trips only.
+
+**Tests** — 37 data quality checks: not_null, accepted_values, range validations, plus custom tests (`assert_positive_fare`, `assert_valid_speed`).
+
+---
+
+## Stack
+
+| Component | Technology | Role |
+|-----------|-----------|------|
+| Storage | MinIO | S3-compatible object storage |
+| Table Format | Apache Iceberg | ACID transactions, time travel, schema evolution |
+| Metastore | Hive Metastore + PostgreSQL | Centralized metadata catalog |
+| Ingestion | Apache Spark 3.5 | Distributed data processing |
+| Query Engine | Trino 438 | Distributed SQL over Iceberg tables |
+| Transformation | dbt 1.7 + dbt-trino | SQL-based modeling and testing |
+| Orchestration | Apache Airflow 2.8 | Pipeline scheduling and monitoring |
+
+---
+
+## Getting Started
+
+```bash
+git clone git@github.com:thiagofariago/lakehouse-platform-nyc-taxi.git
+cd lakehouse-platform-nyc-taxi
+
+# Create environment config
+cp .env.example .env
+
+# Start all services
+docker compose up -d
+
+# Verify everything is healthy
+make health
+```
+
+Startup takes 2-3 minutes. Wait for all health checks to pass before running the pipeline.
+
+### Configuration
+
+Edit `scripts/nyc_taxi/run_spark_ingest_bulk.sh` to customize which data to ingest:
+
+```bash
+NYC_TAXI_YEAR=2023                          # Year to ingest
+NYC_TAXI_MONTH=02                           # Month to ingest (zero-padded)
+NYC_TAXI_COLORS=yellow,green,fhv,fhvhv     # Taxi types (comma-separated)
+NYC_TAXI_OVERWRITE=false                    # true = re-ingest existing partitions
+```
+
+Changes take effect immediately on the next pipeline run — no restart needed.
+
+> **Note:** This setup ingests a fixed period for demonstration purposes. In a production scenario, these values would be dynamically resolved (e.g. via Airflow variables or an incremental schedule) to support continuous, automated ingestion.
+
+### Run the Pipeline
+
+Open [http://localhost:8081](http://localhost:8081) (admin / admin), find `nyc_taxi_pipeline`, and trigger it.
+
+### Access the UIs
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Airflow | [localhost:8081](http://localhost:8081) | admin / admin |
+| Trino | [localhost:8080](http://localhost:8080) | — |
+| MinIO Console | [localhost:9001](http://localhost:9001) | minioadmin / minioadmin123 |
+| Spark Master | [localhost:8083](http://localhost:8083) | — |
+| dbt Docs | [localhost:8082](http://localhost:8082) | — |
+
+> dbt Docs are automatically generated and served after each pipeline run. The lineage graph and full model documentation are available at port 8082.
+
+---
+
+## Pipeline Tasks
+
+The DAG `nyc_taxi_pipeline` runs seven sequential tasks:
+
+| # | Task | What it does |
+|---|------|-------------|
+| 1 | `ingest_spark` | Downloads parquet files from NYC TLC API, writes to Iceberg tables in `raw` schema via Spark |
+| 2 | `dbt_staging` | Installs dbt packages, then standardizes raw data — casts types, generates surrogate keys, filters invalid records |
+| 3 | `dbt_intermediate` | Unifies all taxi types, calculates trip duration/speed/cost, adds temporal features and quality flags |
+| 4 | `dbt_marts` | Builds analytics-ready fact tables: `fct_trips`, `fct_trips_daily`, `fct_trips_monthly` |
+| 5 | `dbt_test` | Runs 37 data quality tests (not_null, accepted_values, range checks) across all layers |
+| 6 | `dbt_docs` | Generates dbt documentation and serves it at [localhost:8082](http://localhost:8082) |
+| 7 | `log_completion` | Logs pipeline summary |
+
+---
+
+## Component Details
+
+### MinIO (Object Storage)
+
+S3-compatible storage that replaces AWS S3 for local development. All Iceberg data files and metadata live here under the `lakehouse` bucket.
+
+### Hive Metastore
+
+Central metadata catalog backed by PostgreSQL. Tracks all databases, tables, partitions, and schemas. Both Spark (writes) and Trino (reads/writes) connect to it via Thrift protocol on port 9083.
+
+### Apache Spark
+
+Handles data ingestion. The bulk ingestion script downloads parquet files from the NYC TLC public CDN, uploads to MinIO, processes with Spark, and writes to Iceberg tables partitioned by year/month.
+
+### Trino (Query Engine)
+
+Distributed SQL engine that queries Iceberg tables. Runs as a coordinator + worker(s) topology. dbt uses Trino as its execution backend for all transformations. Scale workers as needed:
+
+```bash
+make scale-trino-workers WORKERS=3
+```
+
+### dbt (Transformations)
+
+Three-layer modeling approach:
+
+**Staging** — Incremental models that standardize raw data. Each taxi type gets its own model with consistent column naming, type casting, and surrogate key generation.
+
+**Intermediate** — Views that unify all taxi types into a single schema, calculate derived metrics (speed, duration, cost), and flag data quality issues.
+
+**Marts** — Materialized Iceberg tables optimized for analytics. `fct_trips` (trip-level), `fct_trips_daily` (daily aggregates), `fct_trips_monthly` (monthly aggregates with percentage distributions).
+
+### Airflow (Orchestration)
+
+Manages the end-to-end pipeline execution. The DAG runs on-demand (no schedule), with retry logic (2 retries, 5-minute delay). The Airflow container includes Docker CLI to submit Spark jobs to the Spark cluster.
+
+### A Note on Scaling
+
+Spark and Trino workers are set to a fixed count in this setup for simplicity. In a production environment, the number of workers should be dynamically adjusted based on workload — using autoscaling policies (e.g. Kubernetes HPA, AWS EMR auto-scaling, or Trino's resource groups) to allocate resources on demand and avoid over-provisioning.
+
+---
+
+## Querying Data
+
+### Trino CLI
+
+```bash
+docker exec -it trino-coordinator trino --catalog iceberg --schema marts
+
+trino> SELECT taxi_type, COUNT(*) as trips FROM fct_trips GROUP BY taxi_type;
+trino> SELECT * FROM fct_trips_daily ORDER BY trip_date DESC LIMIT 10;
+```
+
+### SQL Client (DBeaver, DataGrip)
+
+| Setting | Value |
+|---------|-------|
+| Host | `localhost` |
+| Port | `8080` |
+| Catalog | `iceberg` |
+| Schema | `marts` |
+| User | `admin` |
+| Driver | Trino JDBC (`drivers/trino-jdbc-438.jar` included) |
+
+---
+
+## Useful Commands
+
+```bash
+# Service management
+make up                    # Start all services
+make down                  # Stop all services
+make restart               # Restart all services
+make status                # Show container status
+make health                # Check service health
+
+# Pipeline
+make airflow-trigger       # Trigger the DAG
+
+# dbt (runs inside Airflow container)
+make dbt-run               # Run all models
+make dbt-test              # Run all tests
+make dbt-docs              # Generate documentation
+
+# Logs
+make logs                  # All services
+make logs-airflow          # Airflow only
+make logs-trino            # Trino only
+make logs-spark            # Spark only
+
+# Trino
+make trino-cli             # Open Trino shell
+
+# Cleanup
+make clean                 # Stop + remove volumes
+make clean-all             # Full reset (volumes + images + logs)
+```

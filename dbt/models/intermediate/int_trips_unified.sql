@@ -5,11 +5,7 @@
     )
 }}
 
-/*
-    Intermediate - Trips Unified
-    
-    Combina todos os tipos de taxi (yellow, green, fhv, fhvhv) em um schema unificado
-*/
+-- Unions all taxi types (yellow, green, fhv, fhvhv) into a single schema
 
 with yellow_trips as (
     select

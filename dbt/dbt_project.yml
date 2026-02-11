@@ -7,6 +7,9 @@ profile: 'lakehouse'
 model-paths: ["models"]
 test-paths: ["tests"]
 macro-paths: ["macros"]
+log-path: "/tmp/dbt-logs"
+target-path: "/tmp/dbt-target"
+packages-install-path: "/tmp/dbt-packages"
 
 models:
   lakehouse_analytics:
