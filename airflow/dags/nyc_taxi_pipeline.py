@@ -93,12 +93,18 @@ with dag:
         bash_command='cd /opt/airflow/dbt && dbt test --profiles-dir . --target dev ',
     )
 
-    # Task 6: Log completion
+    # Task 6: dbt - Generate docs and serve on port 8082
+    dbt_docs = BashOperator(
+        task_id='dbt_docs',
+        bash_command='docker exec airflow-webserver bash -c "cd /opt/airflow/dbt && dbt deps --profiles-dir . && dbt docs generate --profiles-dir . --target dev && pkill -f \'python3 -m http.server 8082\' || true && cd /tmp/dbt-target && nohup python3 -m http.server 8082 --bind 0.0.0.0 > /tmp/dbt-docs-serve.log 2>&1 & sleep 2 && echo \'dbt docs available at http://localhost:8082\'" ',
+    )
+
+    # Task 7: Log completion
     log_completion = PythonOperator(
         task_id='log_completion',
         python_callable=log_pipeline_completion,
         provide_context=True,
     )
 
-    # Pipeline: Spark → dbt staging → dbt intermediate → dbt marts → dbt test → log
-    ingest >> dbt_staging >> dbt_intermediate >> dbt_marts >> dbt_test >> log_completion
+    # Pipeline: Spark → staging → intermediate → marts → test → docs → log
+    ingest >> dbt_staging >> dbt_intermediate >> dbt_marts >> dbt_test >> dbt_docs >> log_completion

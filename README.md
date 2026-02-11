@@ -47,45 +47,19 @@ graph TB
 
 ### Data Flow
 
-```mermaid
-graph LR
-    subgraph RAW["RAW · Iceberg"]
-        Y[yellow_trips]
-        G[green_trips]
-        F[fhv_trips]
-        FH[fhvhv_trips]
-    end
+![dbt Lineage Graph](docs/dbt-lineage.png)
 
-    subgraph STG["STAGING · dbt"]
-        SY[stg_yellow_trips]
-        SG[stg_green_trips]
-        SF[stg_fhv_trips]
-        SFH[stg_fhvhv_trips]
-    end
-
-    subgraph INT["INTERMEDIATE · dbt"]
-        IU[int_trips_unified]
-        IE[int_trips_enriched]
-        IC[int_trips_cleaned]
-    end
-
-    subgraph MRT["MARTS · dbt"]
-        FT[fct_trips]
-        FD[fct_trips_daily]
-        FM[fct_trips_monthly]
-    end
-
-    Y --> SY --> IU
-    G --> SG --> IU
-    F --> SF --> IU
-    FH --> SFH --> IU
-    IU --> IE --> IC
-    IC --> FT
-    IC --> FD
-    IC --> FM
-```
-
-> **RAW** — Spark writes partitioned Iceberg tables (year/month) &nbsp;|&nbsp; **STAGING** — Standardize, cast types, generate IDs, incremental load &nbsp;|&nbsp; **INTERMEDIATE** — Unify all types, calculate speed/duration/cost, quality flags &nbsp;|&nbsp; **MARTS** — High-quality trips only, daily/monthly aggregations
+| Layer | Models | What it does |
+|-------|--------|-------------|
+| **Raw** | `raw.yellow_trips` `raw.green_trips` `raw.fhv_trips` `raw.fhvhv_trips` | Spark downloads parquet files from the NYC TLC public API and writes them as Iceberg tables, partitioned by year/month. Data lands here as-is, with only metadata columns added (`year`, `month`, `loaded_at`). |
+| **Staging** | `stg_nyc_taxi__yellow_trips` `stg_nyc_taxi__green_trips` `stg_nyc_taxi__fhv_trips` `stg_nyc_taxi__fhvhv_trips` | One model per taxi type. Standardizes column names, casts data types, generates surrogate keys (`trip_id`), and filters out invalid records (null datetimes, negative distances). Loads incrementally — only new partitions are processed. |
+| **Intermediate** | `int_trips_unified` | Merges all four taxi types into a single schema via `UNION ALL`, mapping each type's columns to a common structure. |
+| | `int_trips_enriched` | Calculates derived metrics: trip duration, average speed (mph), cost per mile, cost per minute. Adds temporal features (hour, day of week, time of day). Flags data quality: `is_valid_duration`, `is_valid_distance`, `is_valid_fare`, `is_high_quality_trip`. |
+| | `int_trips_cleaned` | Filters to only high-quality trips and removes outliers (e.g. speed > 80 mph). |
+| **Marts** | `fct_trips` | Core fact table — one row per validated trip with all metrics, dimensions, and quality flags. Source for all downstream aggregations. |
+| | `fct_trips_daily` | Daily aggregates by taxi type: trip counts, revenue totals, average speed/distance/duration, and time-of-day distribution (morning/afternoon/evening/night). |
+| | `fct_trips_monthly` | Monthly aggregates by taxi type: trend-oriented metrics including percentage distributions by time of day and weekend vs weekday splits. |
+| **Tests** | `assert_positive_fare` `assert_valid_speed` | Singular tests that validate business rules across the marts layer (37 total tests including schema-level not_null, accepted_values, and range checks). |
 
 ---
 
