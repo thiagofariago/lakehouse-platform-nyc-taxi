@@ -6,51 +6,86 @@ A production-grade data lakehouse built on open-source tooling. Ingests NYC Taxi
 
 ## Architecture
 
-```
-                        NYC TLC Public API
-                    (parquet files via HTTPS)
-                              |
-                              v
-                    +-------------------+
-                    |   Apache Spark    |
-                    |   (Ingestion)     |
-                    +--------+----------+
-                             |
-                             v
-  +----------+      +----------------+      +-----------+
-  |  Hive    |<---->|     MinIO      |<---->|   Trino   |
-  | Metastore|      | (S3 Storage)   |      | (Query    |
-  | (catalog)|      |                |      |  Engine)  |
-  +----------+      +----------------+      +-----------+
-       ^                                         ^
-       |              +---------+                |
-       +--------------+   dbt   +----------------+
-                       | (Transform)
-                       +---------+
-                              ^
-                              |
-                    +-------------------+
-                    |  Apache Airflow   |
-                    |  (Orchestration)  |
-                    +-------------------+
+```mermaid
+graph TB
+    subgraph External
+        API["NYC TLC Public API<br/><i>parquet files via HTTPS</i>"]
+    end
+
+    subgraph Orchestration
+        AF["Apache Airflow<br/><i>scheduling & monitoring</i>"]
+    end
+
+    subgraph Ingestion
+        SP["Apache Spark<br/><i>distributed processing</i>"]
+    end
+
+    subgraph Storage & Catalog
+        MN["MinIO<br/><i>S3-compatible storage</i>"]
+        HM["Hive Metastore<br/><i>metadata catalog</i>"]
+    end
+
+    subgraph Query & Transform
+        TR["Trino<br/><i>distributed SQL engine</i>"]
+        DBT["dbt<br/><i>SQL transformations</i>"]
+    end
+
+    subgraph Consumers
+        BI["Analytics & BI Tools<br/><i>DBeaver · DataGrip · Metabase</i>"]
+    end
+
+    API -->|download| SP
+    AF -->|triggers| SP
+    AF -->|triggers| DBT
+    SP -->|write Iceberg| MN
+    SP -->|register tables| HM
+    HM <-->|metadata| TR
+    MN <-->|read/write data| TR
+    DBT -->|executes SQL via| TR
+    TR --> BI
 ```
 
 ### Data Flow
 
+```mermaid
+graph LR
+    subgraph RAW["RAW · Iceberg"]
+        Y[yellow_trips]
+        G[green_trips]
+        F[fhv_trips]
+        FH[fhvhv_trips]
+    end
+
+    subgraph STG["STAGING · dbt"]
+        SY[stg_yellow_trips]
+        SG[stg_green_trips]
+        SF[stg_fhv_trips]
+        SFH[stg_fhvhv_trips]
+    end
+
+    subgraph INT["INTERMEDIATE · dbt"]
+        IU[int_trips_unified]
+        IE[int_trips_enriched]
+        IC[int_trips_cleaned]
+    end
+
+    subgraph MRT["MARTS · dbt"]
+        FT[fct_trips]
+        FD[fct_trips_daily]
+        FM[fct_trips_monthly]
+    end
+
+    Y --> SY --> IU
+    G --> SG --> IU
+    F --> SF --> IU
+    FH --> SFH --> IU
+    IU --> IE --> IC
+    IC --> FT
+    IC --> FD
+    IC --> FM
 ```
-RAW (Iceberg)          STAGING (dbt)           INTERMEDIATE (dbt)       MARTS (dbt)
-──────────────         ─────────────           ──────────────────       ───────────
-yellow_trips    -->    stg_yellow_trips   -->   int_trips_unified  -->  fct_trips
-green_trips     -->    stg_green_trips    -->   int_trips_enriched -->  fct_trips_daily
-fhv_trips       -->    stg_fhv_trips      -->   int_trips_cleaned  -->  fct_trips_monthly
-fhvhv_trips     -->    stg_fhvhv_trips    |
-                                          |
-Spark writes           Standardize,       |    Union all types,        High-quality
-parquet to             cast types,             calculate speed,        trips only,
-Iceberg tables         generate IDs,           duration, cost,         daily/monthly
-(partitioned           filter nulls,           quality flags,          aggregations
-by year/month)         incremental load        temporal features
-```
+
+> **RAW** — Spark writes partitioned Iceberg tables (year/month) &nbsp;|&nbsp; **STAGING** — Standardize, cast types, generate IDs, incremental load &nbsp;|&nbsp; **INTERMEDIATE** — Unify all types, calculate speed/duration/cost, quality flags &nbsp;|&nbsp; **MARTS** — High-quality trips only, daily/monthly aggregations
 
 ---
 
