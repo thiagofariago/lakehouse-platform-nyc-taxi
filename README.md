@@ -192,7 +192,7 @@ make health                # Check service health
 # Pipeline
 make airflow-trigger       # Trigger the DAG
 
-# dbt (runs inside Airflow container)
+# dbt
 make dbt-run               # Run all models
 make dbt-test              # Run all tests
 make dbt-docs              # Generate documentation
