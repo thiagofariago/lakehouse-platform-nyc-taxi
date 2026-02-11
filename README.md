@@ -14,44 +14,7 @@ A production-grade data lakehouse built on open-source tooling. Ingests NYC Taxi
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph External
-        API["NYC TLC Public API<br/><i>parquet files via HTTPS</i>"]
-    end
-
-    subgraph Orchestration
-        AF["Apache Airflow<br/><i>scheduling & monitoring</i>"]
-    end
-
-    subgraph Ingestion
-        SP["Apache Spark<br/><i>distributed processing</i>"]
-    end
-
-    subgraph Storage & Catalog
-        MN["MinIO<br/><i>S3-compatible storage</i>"]
-        HM["Hive Metastore<br/><i>metadata catalog</i>"]
-    end
-
-    subgraph Query & Transform
-        TR["Trino<br/><i>distributed SQL engine</i>"]
-        DBT["dbt<br/><i>SQL transformations</i>"]
-    end
-
-    subgraph Consumers
-        BI["Analytics & BI Tools<br/><i>DBeaver · DataGrip · Metabase</i>"]
-    end
-
-    API -->|download| SP
-    AF -->|triggers| SP
-    AF -->|triggers| DBT
-    SP -->|write Iceberg| MN
-    SP -->|register tables| HM
-    HM <-->|metadata| TR
-    MN <-->|read/write data| TR
-    DBT -->|executes SQL via| TR
-    TR --> BI
-```
+![Architecture](docs/architecture.png)
 
 ### Data Flow
 
