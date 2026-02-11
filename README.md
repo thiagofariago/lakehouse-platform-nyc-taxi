@@ -4,6 +4,14 @@ A production-grade data lakehouse built on open-source tooling. Ingests NYC Taxi
 
 ---
 
+## Requirements
+
+- [Docker Engine 20.10+](https://docs.docker.com/engine/install/) with [Docker Compose v2](https://docs.docker.com/compose/install/)
+- 8 GB RAM minimum (16 GB recommended)
+- Available ports: `8080-8085`, `9000-9001`, `5432-5433`, `9083`, `7077`
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -49,17 +57,15 @@ graph TB
 
 ![dbt Lineage Graph](docs/dbt-lineage.png)
 
-| Layer | Models | What it does |
-|-------|--------|-------------|
-| **Raw** | `raw.yellow_trips` `raw.green_trips` `raw.fhv_trips` `raw.fhvhv_trips` | Spark downloads parquet files from the NYC TLC public API and writes them as Iceberg tables, partitioned by year/month. Data lands here as-is, with only metadata columns added (`year`, `month`, `loaded_at`). |
-| **Staging** | `stg_nyc_taxi__yellow_trips` `stg_nyc_taxi__green_trips` `stg_nyc_taxi__fhv_trips` `stg_nyc_taxi__fhvhv_trips` | One model per taxi type. Standardizes column names, casts data types, generates surrogate keys (`trip_id`), and filters out invalid records (null datetimes, negative distances). Loads incrementally — only new partitions are processed. |
-| **Intermediate** | `int_trips_unified` | Merges all four taxi types into a single schema via `UNION ALL`, mapping each type's columns to a common structure. |
-| | `int_trips_enriched` | Calculates derived metrics: trip duration, average speed (mph), cost per mile, cost per minute. Adds temporal features (hour, day of week, time of day). Flags data quality: `is_valid_duration`, `is_valid_distance`, `is_valid_fare`, `is_high_quality_trip`. |
-| | `int_trips_cleaned` | Filters to only high-quality trips and removes outliers (e.g. speed > 80 mph). |
-| **Marts** | `fct_trips` | Core fact table — one row per validated trip with all metrics, dimensions, and quality flags. Source for all downstream aggregations. |
-| | `fct_trips_daily` | Daily aggregates by taxi type: trip counts, revenue totals, average speed/distance/duration, and time-of-day distribution (morning/afternoon/evening/night). |
-| | `fct_trips_monthly` | Monthly aggregates by taxi type: trend-oriented metrics including percentage distributions by time of day and weekend vs weekday splits. |
-| **Tests** | `assert_positive_fare` `assert_valid_speed` | Singular tests that validate business rules across the marts layer (37 total tests including schema-level not_null, accepted_values, and range checks). |
+**Raw** — Spark ingests parquet files from the NYC TLC API into Iceberg tables, partitioned by year/month.
+
+**Staging** — One model per taxi type. Standardizes columns, casts types, generates surrogate keys, filters invalid records. Incremental.
+
+**Intermediate** — Unifies all taxi types into a single schema, calculates derived metrics (speed, duration, cost per mile), adds temporal features and quality flags.
+
+**Marts** — Analytics-ready fact tables: `fct_trips` (trip-level), `fct_trips_daily` (daily aggregates), `fct_trips_monthly` (monthly trends). High-quality trips only.
+
+**Tests** — 37 data quality checks: not_null, accepted_values, range validations, plus custom tests (`assert_positive_fare`, `assert_valid_speed`).
 
 ---
 
@@ -79,16 +85,9 @@ graph TB
 
 ## Getting Started
 
-### Prerequisites
-
-- Docker + Docker Compose (v2)
-- 8 GB RAM minimum
-- Available ports: `8080-8085`, `9000-9001`, `5432-5433`, `9083`, `7077`
-
-### Setup
-
 ```bash
-git clone <repo-url> && cd lakehouse-platform-nyc-taxi
+git clone git@github.com:thiagofariago/lakehouse-platform-nyc-taxi.git
+cd lakehouse-platform-nyc-taxi
 
 # Create environment config
 cp .env.example .env
@@ -102,17 +101,22 @@ make health
 
 Startup takes 2-3 minutes. Wait for all health checks to pass before running the pipeline.
 
-### Run the Pipeline
+### Configuration
 
-**Option A — Airflow UI:**
-
-Open [http://localhost:8081](http://localhost:8081) (admin / admin), find `nyc_taxi_pipeline`, and trigger it.
-
-**Option B — CLI:**
+Edit `scripts/nyc_taxi/run_spark_ingest_bulk.sh` to customize which data to ingest:
 
 ```bash
-make airflow-trigger
+NYC_TAXI_YEAR=2023                          # Year to ingest
+NYC_TAXI_MONTH=02                           # Month to ingest (zero-padded)
+NYC_TAXI_COLORS=yellow,green,fhv,fhvhv     # Taxi types (comma-separated)
+NYC_TAXI_OVERWRITE=false                    # true = re-ingest existing partitions
 ```
+
+Changes take effect immediately on the next pipeline run — no restart needed.
+
+### Run the Pipeline
+
+Open [http://localhost:8081](http://localhost:8081) (admin / admin), find `nyc_taxi_pipeline`, and trigger it.
 
 ### Access the UIs
 
@@ -122,12 +126,15 @@ make airflow-trigger
 | Trino | [localhost:8080](http://localhost:8080) | — |
 | MinIO Console | [localhost:9001](http://localhost:9001) | minioadmin / minioadmin123 |
 | Spark Master | [localhost:8083](http://localhost:8083) | — |
+| dbt Docs | [localhost:8082](http://localhost:8082) | — |
+
+> dbt Docs are automatically generated and served after each pipeline run. The lineage graph and full model documentation are available at port 8082.
 
 ---
 
 ## Pipeline Tasks
 
-The DAG `nyc_taxi_pipeline` runs six sequential tasks:
+The DAG `nyc_taxi_pipeline` runs seven sequential tasks:
 
 | # | Task | What it does |
 |---|------|-------------|
@@ -136,60 +143,8 @@ The DAG `nyc_taxi_pipeline` runs six sequential tasks:
 | 3 | `dbt_intermediate` | Unifies all taxi types, calculates trip duration/speed/cost, adds temporal features and quality flags |
 | 4 | `dbt_marts` | Builds analytics-ready fact tables: `fct_trips`, `fct_trips_daily`, `fct_trips_monthly` |
 | 5 | `dbt_test` | Runs 37 data quality tests (not_null, accepted_values, range checks) across all layers |
-| 6 | `log_completion` | Logs pipeline summary |
-
----
-
-## Project Structure
-
-```
-.
-├── airflow/
-│   ├── Dockerfile              # Airflow image with dbt, Spark, Docker CLI
-│   ├── dags/
-│   │   └── nyc_taxi_pipeline.py  # Main DAG definition
-│   └── requirements.txt        # Python dependencies
-│
-├── dbt/
-│   ├── dbt_project.yml         # dbt project config
-│   ├── profiles.yml            # Trino connection profile
-│   ├── packages.yml            # dbt_utils dependency
-│   ├── macros/
-│   │   └── get_custom_schema.sql  # Schema routing macro
-│   ├── models/
-│   │   ├── staging/            # 4 models — one per taxi type (incremental)
-│   │   ├── intermediate/       # 3 models — unify, enrich, clean (views)
-│   │   └── marts/              # 3 models — fact tables (tables)
-│   └── tests/
-│       └── marts/              # Custom singular tests
-│
-├── scripts/
-│   └── nyc_taxi/
-│       ├── ingest_spark_bulk.py     # PySpark ingestion script
-│       └── run_spark_ingest_bulk.sh # Spark-submit wrapper
-│
-├── spark/
-│   ├── Dockerfile              # Spark image with Iceberg + AWS JARs
-│   └── conf/
-│       └── spark-defaults.conf # Spark session defaults
-│
-├── metastore/
-│   ├── Dockerfile              # Hive Metastore image
-│   ├── metastore-site.xml      # Metastore config (PostgreSQL + S3)
-│   └── core-site.xml           # Hadoop S3A filesystem config
-│
-├── trino/
-│   ├── catalog/
-│   │   ├── iceberg.properties  # Iceberg connector (primary)
-│   │   └── hive.properties     # Hive connector
-│   ├── coordinator/            # Coordinator node config
-│   └── worker/                 # Worker node config
-│
-├── docker-compose.yml          # All services definition
-├── Makefile                    # Shortcut commands
-├── .env.example                # Environment variables template
-└── .github/workflows/ci.yml   # CI: lint + Docker build
-```
+| 6 | `dbt_docs` | Generates dbt documentation and serves it at [localhost:8082](http://localhost:8082) |
+| 7 | `log_completion` | Logs pipeline summary |
 
 ---
 
@@ -205,27 +160,11 @@ Central metadata catalog backed by PostgreSQL. Tracks all databases, tables, par
 
 ### Apache Spark
 
-Handles data ingestion. The bulk ingestion script:
-1. Downloads parquet files from the NYC TLC public CDN
-2. Uploads to MinIO as temporary files
-3. Reads with Spark for distributed processing
-4. Adds metadata columns (`year`, `month`, `loaded_at`)
-5. Writes to Iceberg tables partitioned by `year/month`
-
-Configurable via environment variables in `run_spark_ingest_bulk.sh`:
-
-```bash
-NYC_TAXI_YEAR=2023
-NYC_TAXI_MONTH=02
-NYC_TAXI_COLORS=yellow,green,fhv,fhvhv
-NYC_TAXI_OVERWRITE=false
-```
+Handles data ingestion. The bulk ingestion script downloads parquet files from the NYC TLC public CDN, uploads to MinIO, processes with Spark, and writes to Iceberg tables partitioned by year/month.
 
 ### Trino (Query Engine)
 
-Distributed SQL engine that queries Iceberg tables. Runs as a coordinator + worker(s) topology. dbt uses Trino as its execution backend for all transformations.
-
-Scale workers as needed:
+Distributed SQL engine that queries Iceberg tables. Runs as a coordinator + worker(s) topology. dbt uses Trino as its execution backend for all transformations. Scale workers as needed:
 
 ```bash
 make scale-trino-workers WORKERS=3
@@ -283,7 +222,6 @@ make health                # Check service health
 
 # Pipeline
 make airflow-trigger       # Trigger the DAG
-make airflow-list-dags     # List available DAGs
 
 # dbt (runs inside Airflow container)
 make dbt-run               # Run all models
@@ -303,30 +241,3 @@ make trino-cli             # Open Trino shell
 make clean                 # Stop + remove volumes
 make clean-all             # Full reset (volumes + images + logs)
 ```
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|---------|
-| Old data from previous runs | `docker compose down -v` to remove persisted volumes |
-| dbt exits with code 2, no output | Permission issue on `dbt/logs` — set `log-path` to `/tmp/dbt-logs` in `dbt_project.yml` |
-| `NoSuchObjectException: database raw` | The `raw` database must be created before ingestion — handled automatically by the ingestion script |
-| `Schema 'marts' does not exist` | Run `dbt run --select marts` before running tests |
-| Airflow Jinja `TemplateNotFound` | `bash_command` in BashOperator must end with a trailing space |
-
----
-
-## Requirements
-
-- Docker Engine 20.10+
-- Docker Compose v2
-- 8 GB RAM minimum (16 GB recommended)
-- ~5 GB disk space for images + data
-
----
-
-## License
-
-MIT

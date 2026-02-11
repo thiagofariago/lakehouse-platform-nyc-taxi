@@ -1,11 +1,11 @@
 #!/bin/bash
 # Wrapper para ingestão bulk de múltiplos tipos de taxi
-# Configurações centralizadas aqui (não mais via parâmetros)
+# Edit the variables below to change what data to ingest
 
 set -e
 
 # ============================================
-# CONFIGURAÇÃO - Edite aqui para mudar período
+# CONFIGURATION - Edit here before running
 # ============================================
 export NYC_TAXI_YEAR=2023
 export NYC_TAXI_MONTH=02
