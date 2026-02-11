@@ -1,7 +1,4 @@
-# Sources Configuration - NYC Taxi Pipeline
-#
-# Raw layer usando Iceberg (ACID, time travel, schema evolution)
-# 4 tabelas separadas por tipo de taxi
+# Raw layer sources — Iceberg tables partitioned by year/month
 
 version: 2
 
@@ -15,55 +12,42 @@ sources:
       source_url: "https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page"
 
     tables:
-      # Yellow Taxi - Traditional street-hail taxis
       - name: yellow_trips
         description: "NYC TLC Yellow Taxi trip records (traditional yellow cabs)"
         meta:
           contains_pii: false
           refresh_cadence: "daily"
-
-        # Freshness check: dados devem chegar diariamente
         freshness:
           warn_after: {count: 2, period: day}
           error_after: {count: 5, period: day}
+        loaded_at_field: loaded_at
 
-        loaded_at_field: loaded_at  # Usado para freshness check
-
-      # Green Taxi - Boro taxis (outside Manhattan)
       - name: green_trips
         description: "NYC TLC Green Taxi trip records (boro taxis, outside Manhattan)"
         meta:
           contains_pii: false
           refresh_cadence: "daily"
-
         freshness:
           warn_after: {count: 2, period: day}
           error_after: {count: 5, period: day}
-
         loaded_at_field: loaded_at
 
-      # FHV - For-Hire Vehicles (base dispatched, non-high-volume)
       - name: fhv_trips
         description: "NYC TLC For-Hire Vehicle trip records (base dispatched vehicles)"
         meta:
           contains_pii: false
           refresh_cadence: "daily"
-
         freshness:
           warn_after: {count: 2, period: day}
           error_after: {count: 5, period: day}
-
         loaded_at_field: loaded_at
 
-      # FHVHV - For-Hire Vehicles High Volume (Uber, Lyft, etc)
       - name: fhvhv_trips
         description: "NYC TLC High Volume For-Hire Vehicle trip records (Uber, Lyft, Via)"
         meta:
           contains_pii: false
           refresh_cadence: "daily"
-
         freshness:
           warn_after: {count: 2, period: day}
           error_after: {count: 5, period: day}
-
         loaded_at_field: loaded_at

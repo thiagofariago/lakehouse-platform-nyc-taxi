@@ -5,16 +5,7 @@
     )
 }}
 
-/*
-    Intermediate - Trips Enriched
-
-    Adiciona métricas calculadas:
-    - Duração da viagem em minutos/horas
-    - Velocidade média
-    - Custo por milha
-    - Hora do dia, dia da semana
-    - Flags de qualidade
-*/
+-- Adds derived metrics: duration, speed, cost, temporal features, quality flags
 
 with trips as (
     select * from {{ ref('int_trips_unified') }}
@@ -24,12 +15,12 @@ enriched as (
     select
         *,
 
-        -- Duração da viagem
+        -- Trip duration
         date_diff('second', pickup_datetime, dropoff_datetime) as trip_duration_seconds,
         date_diff('minute', pickup_datetime, dropoff_datetime) as trip_duration_minutes,
         round(date_diff('second', pickup_datetime, dropoff_datetime) / 3600.0, 2) as trip_duration_hours,
 
-        -- Velocidade média (mph)
+        -- Average speed (mph)
         case
             when date_diff('second', pickup_datetime, dropoff_datetime) > 0
                 and trip_distance_miles > 0
@@ -40,21 +31,21 @@ enriched as (
             else null
         end as avg_speed_mph,
 
-        -- Custo por milha (apenas para yellow/green que tem fare)
+        -- Cost per mile (yellow/green only)
         case
             when trip_distance_miles > 0 and total_amount is not null
             then round(total_amount / trip_distance_miles, 2)
             else null
         end as cost_per_mile,
 
-        -- Custo por minuto
+        -- Cost per minute
         case
             when date_diff('minute', pickup_datetime, dropoff_datetime) > 0 and total_amount is not null
             then round(total_amount / date_diff('minute', pickup_datetime, dropoff_datetime), 2)
             else null
         end as cost_per_minute,
 
-        -- Extrair informações temporais
+        -- Temporal features
         hour(pickup_datetime) as pickup_hour,
         day_of_week(pickup_datetime) as pickup_day_of_week,
         case day_of_week(pickup_datetime)
@@ -67,7 +58,6 @@ enriched as (
             when 7 then 'Sunday'
         end as pickup_day_name,
 
-        -- Classificação de período do dia
         case
             when hour(pickup_datetime) between 6 and 11 then 'Morning'
             when hour(pickup_datetime) between 12 and 17 then 'Afternoon'
@@ -75,7 +65,7 @@ enriched as (
             else 'Night'
         end as time_of_day,
 
-        -- Flags de qualidade
+        -- Quality flags
         case
             when date_diff('minute', pickup_datetime, dropoff_datetime) between 1 and 180
             then true else false
@@ -92,7 +82,6 @@ enriched as (
             then true else false
         end as is_valid_fare,
 
-        -- Flag de qualidade geral
         case
             when date_diff('minute', pickup_datetime, dropoff_datetime) between 1 and 180
                 and (trip_distance_miles between 0.1 and 100 or trip_distance_miles is null)

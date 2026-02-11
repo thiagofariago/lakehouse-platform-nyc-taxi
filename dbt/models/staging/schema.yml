@@ -1,9 +1,6 @@
 version: 2
 
 models:
-  # ============================================================================
-  # YELLOW TAXI TRIPS
-  # ============================================================================
   - name: stg_nyc_taxi__yellow_trips
     description: "Staging model for NYC Yellow Taxi trips with standardized column names and basic quality filters"
 
