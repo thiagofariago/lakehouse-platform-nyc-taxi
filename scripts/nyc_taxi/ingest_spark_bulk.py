@@ -240,6 +240,11 @@ def main():
     # Criar Spark session
     spark = create_spark_session()
 
+    # Criar database 'raw' no Iceberg se não existir
+    print("Creating database 'raw' if not exists...")
+    spark.sql("CREATE DATABASE IF NOT EXISTS iceberg.raw")
+    print("✓ Database 'raw' ready")
+
     # Processar cada cor
     results = {}
     for color in COLORS:

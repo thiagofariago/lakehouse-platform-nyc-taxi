@@ -66,33 +66,39 @@ with dag:
     # Task 1: Ingestão Spark (yellow taxi 2023-02)
     ingest = BashOperator(
         task_id='ingest_spark',
-        bash_command='docker exec spark-master bash /opt/scripts/nyc_taxi/run_spark_ingest_bulk.sh',
+        bash_command='docker exec spark-master bash /opt/scripts/nyc_taxi/run_spark_ingest_bulk.sh ',
     )
 
     # Task 2: dbt - Staging models
     dbt_staging = BashOperator(
         task_id='dbt_staging',
-        bash_command='cd /opt/airflow/dbt && dbt run --select staging --profiles-dir . --target dev',
+        bash_command='cd /opt/airflow/dbt && dbt deps --profiles-dir . && dbt run --select staging --profiles-dir . --target dev ',
     )
 
     # Task 3: dbt - Intermediate models
     dbt_intermediate = BashOperator(
         task_id='dbt_intermediate',
-        bash_command='cd /opt/airflow/dbt && dbt run --select intermediate --profiles-dir . --target dev',
+        bash_command='cd /opt/airflow/dbt && dbt run --select intermediate --profiles-dir . --target dev ',
     )
 
-    # Task 4: dbt - Tests
+    # Task 4: dbt - Marts models
+    dbt_marts = BashOperator(
+        task_id='dbt_marts',
+        bash_command='cd /opt/airflow/dbt && dbt run --select marts --profiles-dir . --target dev ',
+    )
+
+    # Task 5: dbt - Tests
     dbt_test = BashOperator(
         task_id='dbt_test',
-        bash_command='cd /opt/airflow/dbt && dbt test --profiles-dir . --target dev',
+        bash_command='cd /opt/airflow/dbt && dbt test --profiles-dir . --target dev ',
     )
 
-    # Task 5: Log completion
+    # Task 6: Log completion
     log_completion = PythonOperator(
         task_id='log_completion',
         python_callable=log_pipeline_completion,
         provide_context=True,
     )
 
-    # Pipeline: Spark → dbt staging → dbt intermediate → dbt test → log
-    ingest >> dbt_staging >> dbt_intermediate >> dbt_test >> log_completion
+    # Pipeline: Spark → dbt staging → dbt intermediate → dbt marts → dbt test → log
+    ingest >> dbt_staging >> dbt_intermediate >> dbt_marts >> dbt_test >> log_completion
